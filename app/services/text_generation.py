@@ -1,4 +1,5 @@
 from openai import AsyncOpenAI
+from openai import OpenAIError
 
 from app.config import Settings
 
@@ -10,10 +11,19 @@ class TextGenerationService:
 
     async def generate(self, prompt: str) -> str:
         if not self.client:
-            return "Поздравляем с днем рождения! Желаем здоровья, энергии, новых достижений и теплых моментов каждый день."
-        response = await self.client.responses.create(
-            model=self.settings.openai_text_model,
-            input=prompt,
-        )
-        return response.output_text.strip()
+            return fallback_birthday_text()
+        try:
+            response = await self.client.responses.create(
+                model=self.settings.openai_text_model,
+                input=prompt,
+            )
+            return response.output_text.strip()
+        except OpenAIError:
+            return fallback_birthday_text()
 
+
+def fallback_birthday_text() -> str:
+    return (
+        "Поздравляем с днем рождения! Желаем крепкого здоровья, энергии, "
+        "новых профессиональных достижений, благополучия и тёплых моментов каждый день."
+    )

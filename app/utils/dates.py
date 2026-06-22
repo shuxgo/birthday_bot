@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 def parse_birth_date(value: str) -> date:
     """Parse DD.MM or DD.MM.YYYY; year is kept only for storage compatibility."""
-    cleaned = value.strip().rstrip(".").replace("/", ".").replace("-", ".")
-    parts = [part for part in cleaned.split(".") if part]
+    cleaned = value.strip().rstrip(".")
+    parts = [part for part in re.split(r"\D+", cleaned) if part]
     if len(parts) not in (2, 3):
         raise ValueError("Введите дату в формате ДД.ММ или ДД.ММ.ГГГГ")
     try:
@@ -18,8 +18,14 @@ def parse_birth_date(value: str) -> date:
 
 
 def parse_publication_datetime(value: str, tz: ZoneInfo, now: datetime | None = None) -> datetime:
-    cleaned = value.strip().rstrip(".").replace("/", ".").replace("-", ".")
-    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = value.strip().rstrip(".")
+    match = re.fullmatch(r"\D*(\d{1,2})\D+(\d{1,2})\D+(\d{4})\D+(\d{1,2})\D+(\d{2})\D*", cleaned)
+    if match:
+        day, month, year, hour, minute = match.groups()
+        cleaned = f"{day.zfill(2)}.{month.zfill(2)}.{year} {hour.zfill(2)}:{minute}"
+    else:
+        cleaned = cleaned.replace("/", ".").replace("-", ".")
+        cleaned = re.sub(r"\s+", " ", cleaned)
     try:
         parsed = datetime.strptime(cleaned, "%d.%m.%Y %H:%M")
     except ValueError as exc:

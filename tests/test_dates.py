@@ -35,3 +35,9 @@ def test_default_publication_handles_february_29():
     birth_date = parse_birth_date("29.02")
     now = datetime(2026, 1, 1, 12, tzinfo=tz)
     assert default_publication_datetime(birth_date, tz, now).year == 2028
+
+
+def test_birth_date_accepts_common_separators():
+    assert parse_birth_date("22.06.1990.").year == 1990
+    assert parse_birth_date("22-06-1990").month == 6
+    assert parse_birth_date("22 06 1990").day == 22
