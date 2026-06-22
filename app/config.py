@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     bot_token: str = Field(alias="BOT_TOKEN")
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(alias="REDIS_URL")
+    ai_provider: str = Field(default="gemini", alias="AI_PROVIDER")
+    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    gemini_text_model: str = Field(default="gemini-3.1-flash-lite", alias="GEMINI_TEXT_MODEL")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
     openai_text_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_TEXT_MODEL")
     openai_image_model: str = Field(default="gpt-image-1", alias="OPENAI_IMAGE_MODEL")
@@ -34,4 +37,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
