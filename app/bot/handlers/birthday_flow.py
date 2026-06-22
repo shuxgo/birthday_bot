@@ -4,6 +4,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards.inline import back_cancel_keyboard, preview_keyboard
+from app.bot.keyboards.main_menu import main_menu
 from app.bot.states.birthday import BirthdayFlow
 from app.config import get_settings
 from app.database.models import PromptType
@@ -17,7 +18,7 @@ from app.utils.dates import default_publication_datetime, parse_birth_date, pars
 router = Router()
 
 
-@router.message(F.text == "Новый именинник")
+@router.message(F.text.in_({"🎂 Новый именинник", "Новый именинник"}))
 async def new_person(message: Message, state: FSMContext) -> None:
     await state.clear()
     await state.set_state(BirthdayFlow.waiting_photo)
@@ -75,7 +76,10 @@ async def receive_position(message: Message, state: FSMContext) -> None:
 async def receive_branch(message: Message, state: FSMContext) -> None:
     await state.update_data(branch=message.text.strip())
     await state.set_state(BirthdayFlow.waiting_birth_date)
-    await message.answer("Введите дату рождения в формате ДД.ММ или ДД.ММ.ГГГГ.")
+    await message.answer(
+        "Введите дату рождения в формате ДД.ММ или ДД.ММ.ГГГГ.",
+        reply_markup=back_cancel_keyboard(),
+    )
 
 
 @router.message(BirthdayFlow.waiting_birth_date)
@@ -84,7 +88,7 @@ async def receive_birth_date(message: Message, state: FSMContext, session: Async
     try:
         birth_date = parse_birth_date(message.text)
     except ValueError as exc:
-        await message.answer(str(exc))
+        await message.answer(str(exc), reply_markup=back_cancel_keyboard())
         return
 
     data = await state.get_data()
@@ -136,7 +140,8 @@ async def ask_manual_text(callback: CallbackQuery, state: FSMContext) -> None:
     post_id = int(callback.data.rsplit(":", 1)[1])
     await state.update_data(post_id=post_id)
     await state.set_state(BirthdayFlow.waiting_manual_text)
-    await callback.message.answer("Отправьте новый текст поздравления.")
+    await callback.message.answer("Отправьте новый текст поздравления.", reply_markup=back_cancel_keyboard())
+    await callback.answer()
 
 
 @router.message(BirthdayFlow.waiting_manual_text)
@@ -158,7 +163,11 @@ async def ask_publication_date(callback: CallbackQuery, state: FSMContext) -> No
     post_id = int(callback.data.rsplit(":", 1)[1])
     await state.update_data(post_id=post_id)
     await state.set_state(BirthdayFlow.waiting_publication_datetime)
-    await callback.message.answer("Введите дату публикации: ДД.ММ.ГГГГ ЧЧ:ММ")
+    await callback.message.answer(
+        "Введите дату публикации: ДД.ММ.ГГГГ ЧЧ:ММ",
+        reply_markup=back_cancel_keyboard(),
+    )
+    await callback.answer()
 
 
 @router.message(BirthdayFlow.waiting_publication_datetime)
@@ -167,7 +176,7 @@ async def save_publication_date(message: Message, state: FSMContext, session: As
     try:
         publication_dt = parse_publication_datetime(message.text, settings.tz)
     except ValueError as exc:
-        await message.answer(str(exc))
+        await message.answer(str(exc), reply_markup=back_cancel_keyboard())
         return
     data = await state.get_data()
     post = await PostRepository(session).get_post(data["post_id"])
@@ -180,8 +189,66 @@ async def save_publication_date(message: Message, state: FSMContext, session: As
     await message.answer(PostBuilder.preview_text(post), reply_markup=preview_keyboard(post.id))
 
 
-@router.callback_query(F.data == "flow:cancel")
-async def cancel_flow(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    await callback.message.answer("Действие отменено.")
+@router.callback_query(F.data.startswith("post:regen:"))
+async def ask_regen_photo(callback: CallbackQuery, state: FSMContext) -> None:
+    post_id = int(callback.data.rsplit(":", 1)[1])
+    await state.update_data(post_id=post_id)
+    await state.set_state(BirthdayFlow.waiting_regen_photo)
+    await callback.message.answer(
+        "Отправьте новое фото для последнего участника этого поста.",
+        reply_markup=back_cancel_keyboard(),
+    )
+    await callback.answer()
 
+
+@router.message(BirthdayFlow.waiting_regen_photo)
+async def regen_last_photo(message: Message, state: FSMContext, bot: Bot, session: AsyncSession) -> None:
+    if not message.photo:
+        await message.answer("Нужно отправить именно фото.", reply_markup=back_cancel_keyboard())
+        return
+    data = await state.get_data()
+    post = await PostRepository(session).get_post(data["post_id"])
+    if not post or not post.members:
+        await state.clear()
+        await message.answer("Пост не найден.")
+        return
+    member = sorted(post.members, key=lambda item: item.sort_order)[-1]
+    file_id = message.photo[-1].file_id
+    settings = get_settings()
+    path, generated_file_id = await ImageGenerationService(settings).generate_from_telegram_photo(
+        bot, file_id, "regenerate last photo"
+    )
+    member.person.original_photo_file_id = file_id
+    member.person.generated_photo_path = path
+    member.person.generated_photo_file_id = generated_file_id
+    await state.clear()
+    await message.answer("✅ Фото обновлено.")
+    await message.answer(PostBuilder.preview_text(post), reply_markup=preview_keyboard(post.id))
+
+
+@router.callback_query(F.data == "flow:cancel")
+async def cancel_flow(callback: CallbackQuery, state: FSMContext, db_user) -> None:
+    await state.clear()
+    await callback.message.answer("Действие отменено.", reply_markup=main_menu(db_user.role))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "flow:back")
+async def back_flow(callback: CallbackQuery, state: FSMContext, db_user) -> None:
+    current = await state.get_state()
+    if current == BirthdayFlow.waiting_full_name.state:
+        await state.set_state(BirthdayFlow.waiting_photo)
+        await callback.message.answer("Отправьте фотографию именинника.", reply_markup=back_cancel_keyboard())
+    elif current == BirthdayFlow.waiting_position.state:
+        await state.set_state(BirthdayFlow.waiting_full_name)
+        await callback.message.answer("Введите ФИО именинника.", reply_markup=back_cancel_keyboard())
+    elif current == BirthdayFlow.waiting_branch.state:
+        await state.set_state(BirthdayFlow.waiting_position)
+        await callback.message.answer("Введите должность.", reply_markup=back_cancel_keyboard())
+    elif current == BirthdayFlow.waiting_birth_date.state:
+        await state.set_state(BirthdayFlow.waiting_branch)
+        await callback.message.answer("Введите филиал.", reply_markup=back_cancel_keyboard())
+    else:
+        await state.clear()
+        await callback.message.answer("Главное меню.", reply_markup=main_menu(db_user.role))
+    await callback.answer()

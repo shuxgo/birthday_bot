@@ -1,20 +1,27 @@
 from datetime import date, datetime, time
+import re
 from zoneinfo import ZoneInfo
 
 
 def parse_birth_date(value: str) -> date:
     """Parse DD.MM or DD.MM.YYYY; year is kept only for storage compatibility."""
-    parts = value.strip().split(".")
+    cleaned = value.strip().rstrip(".").replace("/", ".").replace("-", ".")
+    parts = [part for part in cleaned.split(".") if part]
     if len(parts) not in (2, 3):
         raise ValueError("Введите дату в формате ДД.ММ или ДД.ММ.ГГГГ")
-    day, month = int(parts[0]), int(parts[1])
-    year = int(parts[2]) if len(parts) == 3 else 2000
-    return date(year, month, day)
+    try:
+        day, month = int(parts[0]), int(parts[1])
+        year = int(parts[2]) if len(parts) == 3 else 2000
+        return date(year, month, day)
+    except ValueError as exc:
+        raise ValueError("Введите дату в формате ДД.ММ или ДД.ММ.ГГГГ") from exc
 
 
 def parse_publication_datetime(value: str, tz: ZoneInfo, now: datetime | None = None) -> datetime:
+    cleaned = value.strip().rstrip(".").replace("/", ".").replace("-", ".")
+    cleaned = re.sub(r"\s+", " ", cleaned)
     try:
-        parsed = datetime.strptime(value.strip(), "%d.%m.%Y %H:%M")
+        parsed = datetime.strptime(cleaned, "%d.%m.%Y %H:%M")
     except ValueError as exc:
         raise ValueError("Введите дату и время в формате ДД.ММ.ГГГГ ЧЧ:ММ") from exc
 
